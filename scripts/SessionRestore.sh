@@ -223,19 +223,19 @@ restore_session() {
 
 # Function to restore session with delay (for startup)
 restore_session_delayed() {
-    local delay=${1:-5}
+    local delay=${1:-1}
     log_message "Scheduling session restore in $delay seconds..."
     
     # Wait for desktop environment to be ready
     sleep "$delay"
     
     # Additional check - make sure hyprctl is working
-    local retries=5
+    local retries=2
     while [ $retries -gt 0 ]; do
         if hyprctl version >/dev/null 2>&1; then
             break
         fi
-        sleep 1
+        sleep 0.5
         ((retries--))
     done
     
