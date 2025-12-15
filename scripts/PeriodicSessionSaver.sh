@@ -5,7 +5,7 @@
 
 SESSION_DIR="$HOME/.config/hypr/sessions"
 SCRIPTS_DIR="$HOME/.config/hypr/scripts"
-INTERVAL=300  # Save every 5 minutes
+INTERVAL=3600  # Save every 60 minutes
 
 # Function to log messages
 log_message() {

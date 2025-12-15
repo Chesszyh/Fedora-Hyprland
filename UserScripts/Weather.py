@@ -3,6 +3,7 @@
 # original code https://gist.github.com/Surendrajat/ff3876fd2166dd86fb71180f4e9342d7
 # weather using python
 
+import re
 import requests
 import json
 import os
@@ -23,14 +24,28 @@ weather_icons = {
 }
 
 
-# Get current location based on IP address
+# Get current location based on IP address: response = requests.get("https://ipinfo.io")
+# def get_location():
+#     token = os.getenv('IPINFO_TOKEN') 
+#     # But I don't know why os.getenv can't get it
+#     if not token:
+#         raise RuntimeError("IPINFO_TOKEN environment variable is not set. Please set it to use this script.")
+#     url = f"https://api.ipinfo.io/lite/me?token={token}"
+    
+#     response = requests.get(url, timeout=5)
+#     response.raise_for_status()
+    
+#     data = response.json()
+#     loc_str = data.get("loc")
+#     if not loc_str:
+#         raise RuntimeError("Could not retrieve location from IP info API.")
+    
+#     lat_str, lon_str = loc_str.split(",")
+#     return float(lat_str), float(lon_str)
 def get_location():
-    response = requests.get("https://ipinfo.io")
-    data = response.json()
-    loc = data["loc"].split(",")
-    return float(loc[0]), float(loc[1])
-
-
+    # Shanghai, China
+    return 31.2304, 121.4737
+    
 # Get latitude and longitude
 latitude, longitude = get_location()
 
@@ -61,7 +76,7 @@ status = f"{status[:16]}.." if len(status) > 17 else status
 # status code
 class_attr = html_data("#regionHeader").attr("class")
 if class_attr:
-    class_parts = class_attr.split(" ")
+    class_parts = str(class_attr).split(" ")
     if len(class_parts) > 2:
         status_parts = class_parts[2].split("-")
         if len(status_parts) > 2:
