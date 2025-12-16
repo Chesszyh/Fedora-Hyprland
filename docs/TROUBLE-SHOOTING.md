@@ -316,3 +316,28 @@ bind = $mainMod, M, movetoworkspace, special:minimized
 # Toggle Special Workspace to see "minimized" windows
 bind = $mainMod ALT, M, togglespecialworkspace, minimized
 ```
+
+## 启动时长时间黑屏
+
+问题：启动电脑的时候，都会先黑屏（实际是左上角有一个下划线，按任意键都没反应）10秒左右，然后才能加载出现桌面。
+
+### 第1次优化
+
+- 在`swww-daemon`启动后立即设置壁纸，这样在其他自启动项加载时不会停留在黑屏界面；并且在启动项 Startup_Apps.conf 中将 session-restore 的延迟从 3 秒缩短为 1 秒。
+- 缩短了 SessionRestore.sh 中 session restore 的内部等待循环，从原来的约 8 秒回退到约 2 秒，从而减少启动时应用恢复前的卡顿时间。
+
+未能解决。
+
+### 第2次优化
+
+修改`Startup_Apps.conf`，把所有长驻进程的 exec-once 改为后台运行，避免 Hyprland 顺序等待它们退出。
+
+TODO
+
+## 壁纸
+
+现在开机时壁纸会默认切换到 `~/Pictures/wallpapers/瑞希.jpg`，即使我换了其他壁纸，重启后也会回去。并且锁屏壁纸也一直是这张，我不知道怎么改。
+
+解答：手动替换`cp -r ~/Pictures/wallpapers/瑞希2.jpg ~/.config/hypr/wallpaper_effects/.wallpaper_current`即可。按道理说，每次Ctrl+w切换壁纸时，都会更新`.wallpaper_current`文件，但目前看来并没有生效。
+
+Hyprland小bug太多了，忍一忍吧。
