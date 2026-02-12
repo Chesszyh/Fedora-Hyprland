@@ -94,6 +94,94 @@
 
 ## 5. Wallpaper Engine 一键导入（repkg + ffmpeg）
 
+### 5.0 `repkg`
+
+> TODO Workflow效果检查。目前`repkg`命令单独执行已经能够在`
+
+`/usr/local/bin/repkg` 是一个封装了 `mono` 的脚本，调用 `RePKG.exe` 来解包 `.pkg` 文件。它会自动处理纹理转换（如果有），并提取出视频和音频资源。
+
+```bash
+#!/usr/bin/env bash
+set -u
+
+REPKG_EXE="/home/chesszyh/Applications/repkg/RePKG/bin/Release/net472/RePKG.exe"
+
+extract_output_dir() {
+  local outdir="output"
+  local args=("$@")
+  local i=0
+
+  while [ "$i" -lt "${#args[@]}" ]; do
+    case "${args[$i]}" in
+      -o|--output)
+        i=$((i + 1))
+        if [ "$i" -lt "${#args[@]}" ]; then
+          outdir="${args[$i]}"
+        fi
+        ;;
+      --output=*)
+        outdir="${args[$i]#--output=}"
+        ;;
+    esac
+    i=$((i + 1))
+  done
+
+  printf '%s' "$outdir"
+}
+
+recover_embedded_mp4s() {
+  local outdir="$1"
+  [ -d "$outdir" ] || return 0
+
+  while IFS= read -r -d '' tex; do
+    local mp4="${tex%.tex}.mp4"
+    local offset=""
+
+    [ -f "$mp4" ] && continue
+
+    # Find ISO BMFF ftyp box inside TEX payload.
+    offset=$(perl -0777 -ne 'my $p=index($_,"\x00\x00\x00\x18ftyp"); print $p if $p >= 0' "$tex" 2>/dev/null || true)
+    case "$offset" in
+      ''|*[!0-9]*) continue ;;
+    esac
+
+    if dd if="$tex" of="$mp4" bs=1 skip="$offset" status=none 2>/dev/null; then
+      if command -v ffprobe >/dev/null 2>&1; then
+        if ! ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "$mp4" >/dev/null 2>&1; then
+          rm -f "$mp4"
+          continue
+        fi
+      fi
+      printf 'Recovered mp4: %s\n' "$mp4" >&2
+    fi
+  done < <(find "$outdir" -type f -name '*.tex' -print0)
+}
+
+main() {
+  local args=("$@")
+
+  if [ "${#args[@]}" -eq 0 ]; then
+    mono "$REPKG_EXE"
+    exit $?
+  fi
+
+  if [ "${args[0]}" = "extract" ]; then
+    local outdir
+    outdir=$(extract_output_dir "${args[@]}")
+
+    mono "$REPKG_EXE" "${args[@]}"
+    local rc=$?
+
+    recover_embedded_mp4s "$outdir"
+    exit "$rc"
+  fi
+
+  mono "$REPKG_EXE" "${args[@]}"
+}
+
+main "$@"
+```
+
 ### 5.1 脚本
 
 `UserScripts/WallpaperEngineImport.sh`
