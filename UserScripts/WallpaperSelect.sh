@@ -7,6 +7,7 @@ terminal=kitty
 wallDIR="$HOME/Pictures/wallpapers"
 SCRIPTSDIR="$HOME/.config/hypr/scripts"
 wallpaper_current="$HOME/.config/hypr/wallpaper_effects/.wallpaper_current"
+startup_config="$HOME/.config/hypr/UserConfigs/Startup_Apps.conf"
 
 # Directory for swaync
 iDIR="$HOME/.config/swaync/images"
@@ -70,6 +71,75 @@ RANDOM_PIC_NAME=". random"
 # Rofi command
 rofi_command="rofi -i -show -dmenu -config $rofi_theme -theme-str $rofi_override"
 
+# Helper
+is_video_file() {
+  [[ "${1,,}" =~ \.(mp4|mkv|mov|webm)$ ]]
+}
+
+read_startup_var() {
+  local var_name="$1"
+  awk -F'"' -v key="$var_name" '$1 ~ "^\\$" key "=" {print $2; exit}' "$startup_config"
+}
+
+set_startup_var() {
+  local var_name="$1"
+  local var_value="$2"
+  awk -v key="$var_name" -v val="$var_value" '
+    BEGIN { done=0 }
+    $0 ~ "^\\$" key "=" {
+      print "$" key "=\"" val "\""
+      done=1
+      next
+    }
+    { print }
+    END {
+      if (!done) print "$" key "=\"" val "\""
+    }
+  ' "$startup_config" > "${startup_config}.tmp" && mv "${startup_config}.tmp" "$startup_config"
+}
+
+detect_sidecar_audio() {
+  local video_path="$1"
+  local base="${video_path%.*}"
+  local ext
+  for ext in mp3 m4a wav flac ogg opus aac; do
+    if [ -f "${base}.${ext}" ]; then
+      printf "%s" "${base}.${ext}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+save_video_preview_as_current() {
+  local video_path="$1"
+  local cache_key preview_image
+  cache_key=$(printf "%s" "$video_path" | md5sum | awk '{print $1}')
+  preview_image="$HOME/.cache/video_preview/${cache_key}.png"
+
+  mkdir -p "$HOME/.cache/video_preview"
+  if [[ ! -f "$preview_image" ]]; then
+    ffmpeg -v error -y -i "$video_path" -ss 00:00:01.000 -vframes 1 "$preview_image"
+  fi
+  cp -f "$preview_image" "$wallpaper_current"
+}
+
+video_transition_effect() {
+  local video_path="$1"
+  local cache_key preview_image
+  cache_key=$(printf "%s" "$video_path" | md5sum | awk '{print $1}')
+  preview_image="$HOME/.cache/video_preview/${cache_key}.png"
+
+  mkdir -p "$HOME/.cache/video_preview"
+  if [[ ! -f "$preview_image" ]]; then
+    ffmpeg -v error -y -i "$video_path" -ss 00:00:01.000 -vframes 1 "$preview_image"
+  fi
+
+  swww query >/dev/null 2>&1 || swww-daemon --format xrgb &
+  sleep 0.2
+  swww img -o "$focused_monitor" "$preview_image" $SWWW_PARAMS >/dev/null 2>&1 || true
+}
+
 # Sorting Wallpapers
 menu() {
   IFS=$'\n' sorted_options=($(sort <<<"${PICS[*]}"))
@@ -78,22 +148,25 @@ menu() {
 
   for pic_path in "${sorted_options[@]}"; do
     pic_name=$(basename "$pic_path")
-    if [[ "$pic_name" =~ \.gif$ ]]; then
-      cache_gif_image="$HOME/.cache/gif_preview/${pic_name}.png"
+    display_name="${pic_path#$wallDIR/}"
+    cache_key=$(printf "%s" "$pic_path" | md5sum | awk '{print $1}')
+
+    if [[ "${pic_name,,}" =~ \.gif$ ]]; then
+      cache_gif_image="$HOME/.cache/gif_preview/${cache_key}.png"
       if [[ ! -f "$cache_gif_image" ]]; then
         mkdir -p "$HOME/.cache/gif_preview"
         magick "$pic_path[0]" -resize 1920x1080 "$cache_gif_image"
       fi
-      printf "%s\x00icon\x1f%s\n" "$pic_name" "$cache_gif_image"
-    elif [[ "$pic_name" =~ \.(mp4|mkv|mov|webm|MP4|MKV|MOV|WEBM)$ ]]; then
-      cache_preview_image="$HOME/.cache/video_preview/${pic_name}.png"
+      printf "%s\x00icon\x1f%s\n" "$display_name" "$cache_gif_image"
+    elif is_video_file "$pic_name"; then
+      cache_preview_image="$HOME/.cache/video_preview/${cache_key}.png"
       if [[ ! -f "$cache_preview_image" ]]; then
         mkdir -p "$HOME/.cache/video_preview"
         ffmpeg -v error -y -i "$pic_path" -ss 00:00:01.000 -vframes 1 "$cache_preview_image"
       fi
-      printf "%s\x00icon\x1f%s\n" "$pic_name" "$cache_preview_image"
+      printf "%s\x00icon\x1f%s\n" "$display_name" "$cache_preview_image"
     else
-      printf "%s\x00icon\x1f%s\n" "$(echo "$pic_name" | cut -d. -f1)" "$pic_path"
+      printf "%s\x00icon\x1f%s\n" "$display_name" "$pic_path"
     fi
   done
 }
@@ -132,24 +205,30 @@ set_sddm_wallpaper() {
 
 modify_startup_config() {
   local selected_file="$1"
-  local startup_config="$HOME/.config/hypr/UserConfigs/Startup_Apps.conf"
 
   # Check if it's a live wallpaper (video)
-  if [[ "$selected_file" =~ \.(mp4|mkv|mov|webm)$ ]]; then
+  if is_video_file "$selected_file"; then
     # For video wallpapers:
-    sed -i '/^\s*exec-once\s*=\s*swww-daemon\s*--format\s*xrgb\s*$/s/^/\#/' "$startup_config"
-    sed -i '/^\s*#\s*exec-once\s*=\s*mpvpaper\s*.*$/s/^#\s*//;' "$startup_config"
+    sed -i -E '/^[[:space:]]*#?[[:space:]]*exec-once[[:space:]]*=[[:space:]]*swww-daemon[[:space:]]*--format[[:space:]]*xrgb[[:space:]]*$/s/^[[:space:]]*#?[[:space:]]*/#/' "$startup_config"
+    sed -i -E '/^[[:space:]]*#?[[:space:]]*exec-once[[:space:]]*=[[:space:]]*bash -lc .*swww img.*wallpaper_effects\/\.wallpaper_current.*/s/^[[:space:]]*#?[[:space:]]*/#/' "$startup_config"
+    sed -i -E '/^[[:space:]]*#?[[:space:]]*exec-once[[:space:]]*=[[:space:]]*\$UserScripts\/WallpaperLiveApply\.sh/s/^[[:space:]]*#?[[:space:]]*//' "$startup_config"
 
-    # Update the livewallpaper variable with the selected video path (using $HOME)
+    # Update live wallpaper path and sidecar audio path (if found)
     selected_file="${selected_file/#$HOME/\$HOME}" # Replace /home/user with $HOME
-    sed -i "s|^\$livewallpaper=.*|\$livewallpaper=\"$selected_file\"|" "$startup_config"
+    set_startup_var "livewallpaper" "$selected_file"
+    local selected_audio
+    selected_audio="$(detect_sidecar_audio "${selected_file/\$HOME/$HOME}" || true)"
+    if [ -n "$selected_audio" ]; then
+      selected_audio="${selected_audio/#$HOME/\$HOME}"
+    fi
+    set_startup_var "livewallpaper_audio" "$selected_audio"
 
     echo "Configured for live wallpaper (video)."
   else
     # For image wallpapers:
-    sed -i '/^\s*#\s*exec-once\s*=\s*swww-daemon\s*--format\s*xrgb\s*$/s/^\s*#\s*//;' "$startup_config"
-
-    sed -i '/^\s*exec-once\s*=\s*mpvpaper\s*.*$/s/^/\#/' "$startup_config"
+    sed -i -E '/^[[:space:]]*#?[[:space:]]*exec-once[[:space:]]*=[[:space:]]*swww-daemon[[:space:]]*--format[[:space:]]*xrgb[[:space:]]*$/s/^[[:space:]]*#?[[:space:]]*//' "$startup_config"
+    sed -i -E '/^[[:space:]]*#?[[:space:]]*exec-once[[:space:]]*=[[:space:]]*bash -lc .*swww img.*wallpaper_effects\/\.wallpaper_current.*/s/^[[:space:]]*#?[[:space:]]*//' "$startup_config"
+    sed -i -E '/^[[:space:]]*#?[[:space:]]*exec-once[[:space:]]*=[[:space:]]*\$UserScripts\/WallpaperLiveApply\.sh/s/^[[:space:]]*#?[[:space:]]*/#/' "$startup_config"
 
     echo "Configured for static wallpaper (image)."
   fi
@@ -167,6 +246,7 @@ apply_image_wallpaper() {
   fi
 
   swww img -o "$focused_monitor" "$image_path" $SWWW_PARAMS
+  cp -f "$image_path" "$wallpaper_current"
 
   # Run additional scripts
   "$SCRIPTSDIR/WallustSwww.sh"
@@ -185,10 +265,17 @@ apply_video_wallpaper() {
     notify-send -i "$iDIR/error.png" "E-R-R-O-R" "mpvpaper not found"
     return 1
   fi
-  kill_wallpaper_for_video
+  video_transition_effect "$video_path"
+  save_video_preview_as_current "$video_path"
+
+  pkill mpvpaper 2>/dev/null
+  pkill swaybg 2>/dev/null
+  pkill hyprpaper 2>/dev/null
+  sleep 0.2
+  swww kill 2>/dev/null
 
   # Apply video wallpaper using mpvpaper
-  mpvpaper '*' -o "load-scripts=no no-audio --loop" "$video_path" &
+  "$HOME/.config/hypr/UserScripts/WallpaperLiveApply.sh"
 }
 
 # Main function
@@ -202,15 +289,11 @@ main() {
     exit 0
   fi
 
-  # Handle random selection correctly
   if [[ "$choice" == "$RANDOM_PIC_NAME" ]]; then
-    choice=$(basename "$RANDOM_PIC")
+    selected_file="$RANDOM_PIC"
+  else
+    selected_file="$wallDIR/$choice"
   fi
-
-  choice_basename=$(basename "$choice" | sed 's/\(.*\)\.[^.]*$/\1/')
-
-  # Search for the selected file in the wallpapers directory, including subdirectories
-  selected_file=$(find "$wallDIR" -iname "$choice_basename.*" -print -quit)
 
   if [[ -z "$selected_file" ]]; then
     echo "File not found. Selected choice: $choice"
@@ -221,7 +304,7 @@ main() {
   modify_startup_config "$selected_file"
 
   # **CHECK FIRST** if it's a video or an image **before calling any function**
-  if [[ "$selected_file" =~ \.(mp4|mkv|mov|webm|MP4|MKV|MOV|WEBM)$ ]]; then
+  if is_video_file "$selected_file"; then
     apply_video_wallpaper "$selected_file"
   else
     apply_image_wallpaper "$selected_file"
